@@ -174,6 +174,24 @@ public:
 			fields[h8] = e;
 			fields[f8] = R;
 		} else
+		// длинная рокировка за белых
+		if ((move.figure == k) && (move.from == e1) && (move.to == c1))
+		{
+			fields[e1] = e;
+			fields[c1] = k;
+			fields[a1] = e;
+			fields[d1] = r;
+		}
+		else
+		// длинная рокировка за черных
+		if ((move.figure == K) && (move.from == e8) && (move.to == c8))
+		{
+			fields[e8] = e;
+			fields[c8] = K;
+			fields[a8] = e;
+			fields[d8] = R;
+		}
+		else
 		// взятие на проходе за белых
 		if ((fields[move.from] == p) && 
 			(Letter(move.from) != Letter(move.to)) &&
@@ -285,7 +303,8 @@ private:
 		if ((!isKingMoved) && (!isRookAMoved))
 		{
 			if (((*position)[OffsetField(field, -1, 0)] == e) &&
-				((*position)[OffsetField(field, -2, 0)] == e))
+				((*position)[OffsetField(field, -2, 0)] == e) &&
+				((*position)[OffsetField(field, -3, 0)] == e))
 			{
 				moves->push_back(Move(field, OffsetField(field, -2, 0), (*position)[field]));
 			}
@@ -487,7 +506,7 @@ private:
 				for (int i = -1; i <= 1; i += 2)
 				{
 					// какой должен был быть последний ход для возможности взятия на проходе
-					int lastFieldFrom = OffsetField(field, i, -2 * dir);
+					int lastFieldFrom = OffsetField(field, i, 2 * dir);
 					int lastFieldTo = OffsetField(field, i, 0);
 
 					if ((lastMove.from == lastFieldFrom) &&
@@ -527,6 +546,8 @@ private:
 	int activeX = 0;
 	int activeY = 0;
 	int activeWidth = 0; // область доски от a8 до h1 в окне
+
+	int selectedField = unrealField;
 
 public:
 
@@ -622,6 +643,11 @@ public:
 	{
 		this->side = side;
 	}
+	
+	void SetSelectedField(int field)
+	{
+		this->selectedField = field;
+	}
 
 	int GetActiveX() { return activeX; }
 	int GetActiveY() { return activeY; }
@@ -681,15 +707,33 @@ private:
 		// установка полей
 
 		for (int i = a1; i <= h8; i++)
-		if ((*position)[i] != e)
-		{
-			SelectObject(hdcMem, hFigures[(*position)[i]]);
-			
-			int xField = (int)round(xOffset + (Letter(i)) * fieldWidth);
-			int yField = side == white ? (int)round(yOffset + (7 - Number0to7(i)) * fieldWidth)
-									   : (int)round(yOffset + Number0to7(i) * fieldWidth);
+			if ((i != selectedField) && ((*position)[i] != e)) // обычная отрисовка
+			{
+				SelectObject(hdcMem, hFigures[(*position)[i]]);
 
-			TransparentBlt(hdc, xField, yField, fieldWidth, fieldWidth, hdcMem, 0, 0, fgrWidth, fgrWidth, RGB(255, 0, 0));
+				int xField = (int)round(xOffset + (Letter(i)) * fieldWidth);
+				int yField = side == white ? (int)round(yOffset + (7 - Number0to7(i)) * fieldWidth)
+					: (int)round(yOffset + Number0to7(i) * fieldWidth);
+
+				TransparentBlt(hdc, xField, yField, fieldWidth, fieldWidth, hdcMem, 0, 0, fgrWidth, fgrWidth, RGB(255, 0, 0));
+			}
+
+		// отрисовка в случае перетаскивания
+		if ((selectedField != unrealField) &&
+			((*position)[selectedField] != e))
+		{
+			SelectObject(hdcMem, hFigures[(*position)[selectedField]]);
+
+			POINT cursorPos;
+			GetCursorPos(&cursorPos);
+			ScreenToClient(FindWindow(L"Polaris", L"Polaris"), &cursorPos);
+			TransparentBlt(hdc,
+				cursorPos.x - fieldWidth / 2,
+				cursorPos.y - fieldWidth / 2,
+				fieldWidth,
+				fieldWidth,
+				hdcMem,
+				0, 0, fgrWidth, fgrWidth, RGB(255, 0, 0));
 		}
 
 		DeleteDC(hdcMem);
@@ -707,14 +751,16 @@ private:
 	int activeY = 0;
 	int activeWidth = 0; // активная область доски
 
-	int predX = 0;
-	int predY = 0; // координаты предыдущего клика
+	int predXDown = 0;
+	int predYDown = 0; // координаты предыдущего клика
 
-	int x = 0;
-	int y = 0; // координаты последнего клика
+	int xDown = 0;
+	int yDown = 0; // координаты последнего ужатия
 
 	int xUp = 0;
 	int yUp = 0; // координаты последнего отпускания
+
+	bool isMouseDown; // ужата ли ЛКМ
 
 public:
 	MoveController(Position* position, Drawer* drawer, MoveGenerator* generator)
@@ -722,22 +768,34 @@ public:
 		this->position = position;
 		this->drawer = drawer;
 		this->generator = generator;
+		UpdateActiveBoard();
 	}
 
-	Move* Click(int x, int y)
+	Move* LButtonDown(int x, int y)
 	{
 		UpdateActiveBoard();
+
+		this->isMouseDown = true;
+		drawer->SetSelectedField(GetField(x, y));
+
 		if ((x >= activeX) && (x <= activeX + activeWidth) &&
 			(y >= activeY) && (y <= activeY + activeWidth))
 		{
-			this->predX = this->x;
-			this->predY = this->y;
+			this->predXDown = this->xDown;
+			this->predYDown = this->yDown;
 
-			this->x = x;
-			this->y = y;
+			this->xDown = x;
+			this->yDown = y;
 
 			return GetMove();
 		}
+		return NULL;
+	}
+
+	Move* LButtonUp(int x, int y)
+	{
+		this->isMouseDown = false;
+		drawer->SetSelectedField(unrealField);
 		return NULL;
 	}
 
@@ -752,8 +810,8 @@ private:
 
 	Move* GetMove()
 	{
-		int fieldFrom = GetField(predX, predY);
-		int fieldTo = GetField(x, y);
+		int fieldFrom = GetField(predXDown, predYDown);
+		int fieldTo = GetField(xDown, yDown);
 		
 		list<Move>* moves = generator->Generate(position);
 		
@@ -769,44 +827,12 @@ private:
 
 	int GetField(int x, int y) // получить поле по координате на доске
 	{
-		int fieldWidth = activeWidth / 8;
-		int letter = (x - activeX) / fieldWidth;
-		int number = 7 - (y - activeY) / fieldWidth;
+		float fieldWidth = (float)activeWidth / 8;
+		int letter = (int)floor((x - activeX) / fieldWidth);
+		int number = (int)ceil(7 - (y - activeY) / fieldWidth);
 		return Field(letter, number);
 	}
 };
-
-//int main()
-//{
-//	srand(time(0));
-//
-//	HANDLE hInput = GetStdHandle(STD_INPUT_HANDLE);
-//	HANDLE hOutput = GetStdHandle(STD_OUTPUT_HANDLE);
-//
-//    Position* pos = new Position();
-//    MoveGenerator* generator = new MoveGenerator();
-//
-//	while (true)
-//	{
-//		DWORD read;
-//		char strMove[100000];
-//
-//		ReadConsoleA(hInput, strMove, 9, &read, NULL);
-//		strMove[7] = '\0';
-//
-//		Move move = *(new Move(strMove));
-//		pos->Move(move);
-//		list<Move>* moves = generator->Generate(pos);
-//		move = get(*moves, rand() % moves->size());
-//
-//		WriteConsoleA(hOutput, move.ToString(), 8, &read, NULL);
-//		WriteConsoleA(hOutput, "\n", 1, &read, NULL);
-//
-//		pos->Move(move);
-//	}
-//    return 0;
-//}
-
 
 #define BORDERWIDTH 0
 #define BORDERHEIGHT 62
@@ -976,17 +1002,28 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
 	}
 	case WM_LBUTTONDOWN:
 	{
-		Move* move = controller->Click(LOWORD(lParam), HIWORD(lParam));
-		if (move != NULL)
-		{
-			position->Move(*move);
-			InvalidateRect(hWnd, NULL, true);
-		}
+		Move* move = controller->LButtonDown(LOWORD(lParam), HIWORD(lParam));
+		if (move != NULL) position->Move(*move);
+		InvalidateRect(hWnd, NULL, false);
+		return 0;
+	}
+	case WM_LBUTTONUP:
+	{
+		Move* move = controller->LButtonUp(LOWORD(lParam), HIWORD(lParam));
+		if (move != NULL) position->Move(*move);
+		InvalidateRect(hWnd, NULL, false);
+		return 0;
+	}
+	case WM_MOUSEMOVE:
+	{
+		InvalidateRect(hWnd, NULL, false);
 		return 0;
 	}
 	case WM_DESTROY:
+	{
 		PostQuitMessage(0);
 		return 0;
+	}
 	}
 	return DefWindowProc(hWnd, Msg, wParam, lParam);
 }
